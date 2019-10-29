@@ -1,0 +1,244 @@
+var co = require("co");
+var fs = require("fs");
+var path = require("path");
+var nodeEnv = "development";
+var Sequelize = require('sequelize');
+var config = require("./config/config");
+var moduleConfigPath = path.join(__dirname, "server", "module-config.json");
+var filePath = path.join(__dirname, "server", "modules");
+var files = fs.readFileSync(moduleConfigPath, 'utf-8').split(',');
+files.splice(files.length - 1, 1);
+var options = {};
+if (process.env.NODE_ENV === 'production') {
+    options.logging = false;
+    nodeEnv = 'production'
+} else if (process.env.NODE_ENV === 'development') {
+    nodeEnv = 'development'
+} else if (process.env.NODE_ENV === 'test') {
+    nodeEnv = 'test'
+}
+options.host = config[nodeEnv].host;
+options.port = config[nodeEnv].port;
+options.dialect = config[nodeEnv].dialect;
+options.define = {
+    timestamps: false,
+    freezeTableName: true,
+    underscored: false,
+    syncOnAssociation: false,
+    charset: 'utf8'
+};
+options.sync = {
+    force: false
+}
+
+var sequelize = new Sequelize(config[nodeEnv].database, config[nodeEnv].username, config[nodeEnv].password, options);
+
+co(function* () {
+    var args = process.argv.splice(2);
+    if (args.indexOf('migrations') != -1) {
+        yield createStorageTable()
+        yield migrations()
+    }
+    if (args.indexOf('seeders') != -1) {
+        yield createStorageTable()
+        yield seeders()
+    }
+    if (args.indexOf('change') != -1) {
+        var filePath = args[1];
+        yield changeSql(filePath)
+        return false
+    }
+    if (args.indexOf('seeders') == -1 && args.indexOf('migrations') == -1) {
+        console.log("Please add parameters, migrations , seeders ");
+        return false;
+    }
+
+})
+
+
+var migrationStorageEntity;
+var seederStorageEntity;
+var queryInterface;
+
+function changeSql(filePath) {
+    queryInterface = sequelize.getQueryInterface();
+    console.log(config)
+    return co(function* () {
+        try {
+            fs.statSync(filePath);
+            var result = yield new Promise(function (reslove, reject) {
+                require(path.join(filePath)).up(queryInterface, Sequelize).then(function (data) {
+                    reslove(null)
+                }).catch(function (err) {
+                    reject(err)
+                });
+            })
+            if (result) {
+                console.log(err)
+            } else {
+                console.log("success")
+            }
+        } catch (err) {
+            console.log(err)
+        }
+
+    })
+}
+
+
+function createStorageTable() {
+    return co(function* () {
+        queryInterface = sequelize.getQueryInterface();
+        var migrationStorageTableName = config[nodeEnv].migrationStorageTableName;
+        var seederStorageTableName = config[nodeEnv].seederStorageTableName;
+        yield new Promise(function (reslove, reject) {
+            queryInterface.createTable(migrationStorageTableName, {
+                name: {
+                    type: Sequelize.STRING(255),
+                    allowNull: false,
+                    primaryKey: true
+                }
+            }).then(function (data) {
+                reslove(data)
+            }).catch(function (err) {
+                reject(err)
+            })
+        })
+        yield new Promise(function (reslove, reject) {
+            queryInterface.createTable(seederStorageTableName, {
+                name: {
+                    type: Sequelize.STRING(255),
+                    allowNull: false,
+                    primaryKey: true
+                }
+            }).then(function (data) {
+                reslove(data)
+            }).catch(function (err) {
+                reject(err)
+            })
+        })
+        migrationStorageEntity = sequelize.define(migrationStorageTableName, {
+            name: {
+                type: Sequelize.STRING(255),
+                allowNull: false,
+                primaryKey: true
+            }
+        })
+        seederStorageEntity = sequelize.define(seederStorageTableName, {
+            name: {
+                type: Sequelize.STRING(255),
+                allowNull: false,
+                primaryKey: true
+            }
+        })
+        return
+    }).catch(function (err) {
+        console.log(err)
+    })
+}
+
+function migrations() {
+    return co(function* () {
+        for (var i = 0; i < files.length; i++) {
+            var name = files[i];
+            var migrationsFilePath = path.join(filePath, name, 'db/migrations');
+            try {
+                fs.statSync(migrationsFilePath);
+                var migrationFiles = fs.readdirSync(migrationsFilePath);
+                migrationFiles.sort(sorting)
+                for (var k = 0; k < migrationFiles.length; k++) {
+                    try {
+                        var migrationFileEntity = yield migrationStorageEntity.findOne({
+                            where: {
+                                name: migrationFiles[k]
+                            }
+                        })
+                        if (migrationFileEntity == null) {
+                            console.log(migrationFiles[k]);
+                            try {
+                                var result = yield new Promise(function (reslove, reject) {
+                                    require(path.join(migrationsFilePath, migrationFiles[k])).up(queryInterface, Sequelize).then(function (data) {
+                                        reslove(null)
+                                    }).catch(function (err) {
+                                        reject(err)
+                                    });
+                                })
+                                var obj = {
+                                    name: migrationFiles[k]
+                                }
+                                if (result == null) {
+                                    yield migrationStorageEntity.create(obj);
+                                }
+                            } catch (err) {
+                                console.log(err)
+                                console.log(migrationFiles[k] + ":error")
+                            }
+                        }
+                    } catch (err) {
+                        console.log(err)
+                    }
+                }
+            } catch (err) {
+                console.log(err)
+            }
+        }
+        return
+    })
+}
+function seeders() {
+    return co(function* () {
+        for (var i = 0; i < files.length; i++) {
+            var name = files[i];
+            var seedersFilePath = path.join(filePath, name, 'db/seeders');
+            try {
+                var fileStatus = fs.statSync(seedersFilePath);
+                var seedersFiles = fs.readdirSync(seedersFilePath);
+                seedersFiles.sort(sorting);
+                for (var j = 0; j < seedersFiles.length; j++) {
+                    try {
+                        var seederFileEntity = yield seederStorageEntity.findOne({
+                            where: {
+                                name: seedersFiles[j]
+                            }
+                        })
+                        if (seederFileEntity == null) {
+                            console.log(seedersFiles[j]);
+                            if (seedersFiles[j] != 'defs') {
+                                try {
+                                    var result = yield new Promise(function (reslove, reject) {
+                                        require(path.join(seedersFilePath, seedersFiles[j])).up(queryInterface, Sequelize).then(function (data) {
+                                            reslove(null)
+                                        }).catch(function (err) {
+                                            reject(err)
+                                        });
+                                    })
+                                    var obj = {
+                                        name: seedersFiles[j]
+                                    }
+                                    if (result == null) {
+                                        yield seederStorageEntity.create(obj);
+                                    }
+                                } catch (err) {
+                                    console.log(err)
+                                    console.log(seedersFiles[j] + ":error")
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.log(err)
+                    }
+                }
+            } catch (err) {
+                console.log("no such file or directory:" + seedersFilePath)
+            }
+        }
+        return
+    })
+
+}
+
+function sorting(a, b) {
+    const na = parseInt(a.substr(0, a.indexOf('-')));
+    const nb = parseInt(b.substr(0, b.indexOf('-')));
+    return na - nb;
+}
