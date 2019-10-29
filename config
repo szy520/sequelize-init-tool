@@ -1,0 +1,35 @@
+{
+  "development": {
+    "username": "root",
+    "password": "123",
+    "database": "dxbim",
+    "host": "47.97.208.221",
+    "port":3306,
+    "dialect": "mysql",
+    "seederStorage": "sequelize",
+    "migrationStorageTableName": "SequelizeMeta",
+    "seederStorageTableName": "SequelizeData"
+  },
+  "test": {
+    "username": "root",
+    "password": "123",
+    "database": "dxbim_test",
+    "host": "127.0.0.1",
+    "port":3306,
+    "dialect": "mysql",
+    "seederStorage": "sequelize",
+    "migrationStorageTableName": "SequelizeMeta",
+    "seederStorageTableName": "SequelizeData"
+  },
+  "production": {
+    "username": "root",
+    "password": "123",
+    "port":3306,
+    "database": "dxbim_production",
+    "host": "127.0.0.1",
+    "dialect": "mysql",
+    "seederStorage": "sequelize",
+    "migrationStorageTableName": "SequelizeMeta",
+    "seederStorageTableName": "SequelizeData"
+  }
+}
